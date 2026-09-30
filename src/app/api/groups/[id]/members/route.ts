@@ -14,7 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const url = typeof body.url === "string" ? normalizeFeedUrl(body.url) : null;
   if (!url) {
     return bad(
-      "That doesn't look like a Google Calendar secret iCal address. It should start with https://calendar.google.com/calendar/ical/ and end in basic.ics.",
+      "That doesn't look like a Google Calendar link. Paste the link from “Get shareable link” or an iCal address from your calendar's settings.",
     );
   }
   if ((await listMembers(id)).length >= MAX_MEMBERS) return bad(`Groups are limited to ${MAX_MEMBERS} people.`);

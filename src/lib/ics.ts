@@ -13,10 +13,17 @@ type IcalComponent = {
   getAllProperties(name: string): IcalProperty[];
 };
 type IcalTime = { toJSDate(): Date };
-type IcalEvent = { component: IcalComponent; startDate: IcalTime; endDate: IcalTime };
+type IcalEvent = {
+  uid: string;
+  component: IcalComponent;
+  startDate: IcalTime;
+  endDate: IcalTime;
+  isRecurrenceException(): boolean;
+};
 type Occurrence = { item: IcalEvent; startDate: IcalTime; endDate: IcalTime };
 type Expander = {
   component: IcalComponent;
+  events: IcalEvent[];
   between(after: Date, before: Date): { events: IcalEvent[]; occurrences: Occurrence[] };
 };
 
@@ -57,6 +64,16 @@ export function busyIntervals(ics: string, from: Date, to: Date): Interval[] {
     });
   };
   for (const e of events) add(e, e.startDate, e.endDate);
+  // Google's free/busy-only public feed has no series: each repeat is its own
+  // VEVENT with a RECURRENCE-ID but no parent RRULE. ical-expander only uses
+  // an exception when its parent is present, so treat orphans as plain events.
+  const parents = new Set(expander.events.filter((e) => !e.isRecurrenceException()).map((e) => e.uid));
+  for (const e of expander.events) {
+    if (!e.isRecurrenceException() || parents.has(e.uid)) continue;
+    const start = e.startDate.toJSDate().getTime();
+    const end = e.endDate.toJSDate().getTime();
+    if (end > from.getTime() && start < to.getTime()) add(e, e.startDate, e.endDate);
+  }
   for (const o of occurrences) add(o.item, o.startDate, o.endDate);
   return mergeIntervals(raw);
 }

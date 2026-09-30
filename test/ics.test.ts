@@ -31,4 +31,13 @@ describe("busyIntervals", () => {
     const out = busyIntervals(ics, new Date("2026-10-10T09:15Z"), new Date("2026-10-10T12:00Z"));
     expect(iso(out)).toEqual([["2026-10-10T09:15:00.000Z", "2026-10-10T09:30:00.000Z"]]);
   });
+
+  it("counts orphaned occurrences from Google's free/busy-only public feed", () => {
+    const pub = readFileSync(new URL("./fixtures/public-freebusy.ics", import.meta.url), "utf8");
+    const out = busyIntervals(pub, new Date("2026-10-01T00:00Z"), new Date("2026-10-10T00:00Z"));
+    expect(iso(out)).toEqual([
+      ["2026-10-05T15:00:00.000Z", "2026-10-05T16:00:00.000Z"],
+      ["2026-10-07T20:00:00.000Z", "2026-10-07T21:00:00.000Z"],
+    ]);
+  });
 });
