@@ -3,12 +3,42 @@ import { Redis } from "@upstash/redis";
 import { decrypt, encrypt } from "./crypto";
 import type { Interval } from "./intervals";
 
+// The subset of the Upstash client used here, so a local stand-in can fill in.
+type Kv = {
+  get<T>(key: string): Promise<T | null>;
+  set(key: string, value: unknown, opts?: { ex: number }): Promise<unknown>;
+  del(key: string): Promise<unknown>;
+  expire(key: string, seconds: number): Promise<unknown>;
+  hset(key: string, fields: Record<string, unknown>): Promise<unknown>;
+  hgetall<T extends Record<string, unknown>>(key: string): Promise<T | null>;
+  hdel(key: string, field: string): Promise<unknown>;
+};
+
+/** In-process stand-in for local dev without Redis. Data resets on restart; TTLs are ignored. */
+function memoryKv(): Kv {
+  const g = globalThis as { __overlapKv?: Map<string, unknown> };
+  const m = (g.__overlapKv ??= new Map()); // survives dev hot reloads
+  const hash = (k: string) => (m.get(k) as Record<string, unknown> | undefined) ?? {};
+  return {
+    get: async <T>(k: string) => (m.get(k) as T) ?? null,
+    set: async (k, v) => m.set(k, v),
+    del: async (k) => m.delete(k),
+    expire: async () => 1,
+    hset: async (k, f) => m.set(k, { ...hash(k), ...f }),
+    hgetall: async <T extends Record<string, unknown>>(k: string) => (m.has(k) ? (hash(k) as T) : null),
+    hdel: async (k, f) => {
+      const h = hash(k);
+      delete h[f];
+    },
+  };
+}
+
 // The Vercel Marketplace Upstash integration injects KV_REST_API_*; a
 // directly-created Upstash database uses UPSTASH_REDIS_REST_*.
-const redis = new Redis({
-  url: process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL ?? "",
-  token: process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN ?? "",
-});
+const kvUrl = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+const kvToken = process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+if (!kvUrl && process.env.NODE_ENV === "production") throw new Error("Redis is not configured");
+const redis: Kv = kvUrl && kvToken ? new Redis({ url: kvUrl, token: kvToken }) : memoryKv();
 
 // Groups nobody touches for this long are dropped along with their feed URLs.
 const GROUP_TTL_SECONDS = 60 * 60 * 24 * 120;
