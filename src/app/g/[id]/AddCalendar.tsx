@@ -31,10 +31,10 @@ export default function AddCalendar({ groupId, onAdded }: { groupId: string; onA
 
   return (
     <form className={`${s.card} ${s.stack}`} onSubmit={submit}>
-      <h2 className={s.h2}>Add your calendar</h2>
+      <h2 className={s.h2}>Add a calendar</h2>
       <label className={s.label}>
-        Your name
-        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required />
+        Name
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rahul, or Classes" maxLength={40} required />
       </label>
       <label className={s.label}>
         Calendar link

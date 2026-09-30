@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FeedError, fetchBusy, normalizeFeedUrl } from "@/lib/feeds";
 import { bad, cleanName, loadGroup } from "@/lib/http";
-import { addMember, isValidId, listMembers, removeMember, setCachedBusy } from "@/lib/store";
+import { addMember, isValidId, listMembers, removeMember, renameMember, setCachedBusy } from "@/lib/store";
 
 const MAX_MEMBERS = 30;
 
@@ -10,7 +10,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (error) return error;
   const body = await req.json().catch(() => ({}));
   const name = cleanName(body.name, 40);
-  if (!name) return bad("Enter your name (up to 40 characters).");
+  if (!name) return bad("Give this calendar a name (up to 40 characters).");
   const url = typeof body.url === "string" ? normalizeFeedUrl(body.url) : null;
   if (!url) {
     return bad(
@@ -39,4 +39,16 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   if (!isValidId(memberId)) return bad("Unknown member");
   await removeMember(id, memberId);
   return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id, error } = await loadGroup(params);
+  if (error) return error;
+  const body = await req.json().catch(() => ({}));
+  const memberId = typeof body.memberId === "string" ? body.memberId : "";
+  if (!isValidId(memberId)) return bad("Unknown calendar");
+  const name = cleanName(body.name, 40);
+  if (!name) return bad("Give this calendar a name (up to 40 characters).");
+  if (!(await renameMember(id, memberId, name))) return bad("That calendar is no longer in this group.", 404);
+  return NextResponse.json({ member: { id: memberId, name } });
 }

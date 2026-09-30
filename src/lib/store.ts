@@ -10,6 +10,7 @@ type Kv = {
   del(key: string): Promise<unknown>;
   expire(key: string, seconds: number): Promise<unknown>;
   hset(key: string, fields: Record<string, unknown>): Promise<unknown>;
+  hget<T>(key: string, field: string): Promise<T | null>;
   hgetall<T extends Record<string, unknown>>(key: string): Promise<T | null>;
   hdel(key: string, field: string): Promise<unknown>;
 };
@@ -25,6 +26,7 @@ function memoryKv(): Kv {
     del: async (k) => m.delete(k),
     expire: async () => 1,
     hset: async (k, f) => m.set(k, { ...hash(k), ...f }),
+    hget: async <T>(k: string, f: string) => (hash(k)[f] as T) ?? null,
     hgetall: async <T extends Record<string, unknown>>(k: string) => (m.has(k) ? (hash(k) as T) : null),
     hdel: async (k, f) => {
       const h = hash(k);
@@ -94,6 +96,14 @@ export async function addMember(groupId: string, name: string, url: string): Pro
   await redis.hset(membersKey(groupId), { [member.id]: member });
   await touch(groupId);
   return { id: member.id, name };
+}
+
+/** Returns false when the member doesn't exist (e.g. removed in another tab). */
+export async function renameMember(groupId: string, memberId: string, name: string): Promise<boolean> {
+  const member = await redis.hget<StoredMember>(membersKey(groupId), memberId);
+  if (!member) return false;
+  await redis.hset(membersKey(groupId), { [memberId]: { ...member, name } });
+  return true;
 }
 
 export async function removeMember(groupId: string, memberId: string) {
