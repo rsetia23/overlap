@@ -9,6 +9,7 @@
   --all-free: #1f9d61;
   --danger: #c93b3b;
   --empty: #ececea;
+  --none: #c9c9cf; /* slot where nobody is free */
   --radius: 12px;
 }
 @media (prefers-color-scheme: dark) {
@@ -23,6 +24,7 @@
     --all-free: #35c07f;
     --danger: #ff6b6b;
     --empty: #24242a;
+    --none: #45454f;
   }
 }
 

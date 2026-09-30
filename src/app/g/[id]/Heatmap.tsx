@@ -17,11 +17,18 @@ const minuteOfDay = (t: number) => {
   return d.getHours() * 60 + d.getMinutes();
 };
 
-function cellColor(slot: Slot, total: number) {
-  if (!total || !slot.free.length) return "var(--empty)";
-  if (slot.free.length === total) return "var(--all-free)";
-  const pct = Math.round(15 + (slot.free.length / total) * 55);
-  return `color-mix(in srgb, var(--accent) ${pct}%, var(--empty))`;
+/** One green scale: gray when nobody is free, deeper green as more people are. */
+function colorFor(free: number, total: number) {
+  if (!total || free === 0) return "var(--none)";
+  if (free === total) return "var(--all-free)";
+  const pct = Math.round(20 + (free / total) * 45);
+  return `color-mix(in srgb, var(--all-free) ${pct}%, var(--none))`;
+}
+
+/** Every count for small groups; nobody / a middle step / everyone for big ones. */
+function legendSteps(total: number) {
+  if (total <= 5) return Array.from({ length: total + 1 }, (_, i) => i);
+  return [0, Math.round(total / 2), total];
 }
 
 export default function Heatmap({ days, total, now, nameOf }: Props) {
@@ -64,7 +71,7 @@ export default function Heatmap({ days, total, now, nameOf }: Props) {
                     key={`${i}-${min}`}
                     type="button"
                     className={classes.filter(Boolean).join(" ")}
-                    style={{ background: cellColor(slot, total) }}
+                    style={{ background: colorFor(slot.free.length, total) }}
                     aria-label={`${fmtRange(slot.start, slot.end)}: ${slot.free.length} of ${total} free`}
                     onMouseEnter={() => setHover(slot)}
                     onFocus={() => setHover(slot)}
@@ -78,9 +85,15 @@ export default function Heatmap({ days, total, now, nameOf }: Props) {
       </div>
 
       <div className={s.legend}>
-        <span className={s.swatch} style={{ background: "var(--empty)" }} /> nobody
-        <span className={s.swatch} style={{ background: "color-mix(in srgb, var(--accent) 40%, var(--empty))" }} /> some
-        <span className={s.swatch} style={{ background: "var(--all-free)" }} /> everyone free
+        {legendSteps(total).map((n) => (
+          <span key={n} className={s.legendItem}>
+            <span className={s.swatch} style={{ background: colorFor(n, total) }} />
+            {n === total ? "everyone" : n === 0 ? "nobody" : `${n} of ${total}`}
+          </span>
+        ))}
+        <span className={s.legendItem}>
+          <span className={`${s.swatch} ${s.pastSwatch}`} /> past
+        </span>
       </div>
 
       <div className={s.detail} aria-live="polite">
