@@ -128,75 +128,100 @@ function CalendarRow({
   );
 }
 
-function MyName({ groupId, personId, name, onChanged }: { groupId: string; personId: string; name: string; onChanged: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
+/** Inline editor for your own name, shown in place of your row's summary. */
+function NameForm({ groupId, person, dotClass, onDone }: { groupId: string; person: Person; dotClass: string; onDone: (changed: boolean) => void }) {
+  const [draft, setDraft] = useState(person.name);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const next = draft.trim();
-    if (!next || next === name) return setEditing(false);
+    const name = draft.trim();
+    if (!name || name === person.name) return onDone(false);
+    setSaving(true);
     const res = await fetch(`/api/groups/${groupId}/people`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ personId, name: next }),
+      body: JSON.stringify({ personId: person.id, name }),
     }).catch(() => null);
     const data = await res?.json().catch(() => null);
+    setSaving(false);
     if (!res?.ok) return setError(data?.error ?? "Couldn't rename. Try again.");
-    setEditing(false);
-    onChanged();
+    onDone(true);
   }
 
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        className={s.link}
-        onClick={(e) => {
-          e.preventDefault(); // don't toggle the dropdown
-          setDraft(name);
-          setError(null);
-          setEditing(true);
-        }}
-      >
-        Edit name
-      </button>
-    );
-  }
   return (
-    <form className={s.member} onSubmit={save}>
-      <input
-        className={s.renameInput}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
-        maxLength={40}
-        aria-label="Your name"
-        autoFocus
-      />
-      <button className={s.link}>Save</button>
-      <button type="button" className={s.link} onClick={() => setEditing(false)}>
-        Cancel
-      </button>
-      {error && <span className={s.error}>{error}</span>}
-    </form>
+    <>
+      <form className={s.member} onSubmit={save}>
+        <span className={`${s.dot} ${dotClass}`} />
+        <input
+          className={s.renameInput}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && onDone(false)}
+          maxLength={40}
+          aria-label="Your name"
+          autoFocus
+          disabled={saving}
+        />
+        <button className={s.link} disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button type="button" className={s.link} onClick={() => onDone(false)} disabled={saving}>
+          Cancel
+        </button>
+      </form>
+      {error && <div className={`${s.error} ${s.rowNote}`}>{error}</div>}
+    </>
   );
 }
 
 function PersonRow({ groupId, person, isMe, errorOf, onChanged }: { groupId: string; person: Person; isMe: boolean; errorOf: Props["errorOf"]; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
   const errors = person.calendars.filter((m) => errorOf(m.id)).length;
   const allFailing = person.calendars.length > 0 && errors === person.calendars.length;
   const count = person.calendars.length;
+  const dotClass = allFailing ? s.dotErr : count ? "" : s.dotIdle;
+
+  if (editing) {
+    return (
+      <li>
+        <NameForm
+          groupId={groupId}
+          person={person}
+          dotClass={dotClass}
+          onDone={(changed) => {
+            setEditing(false);
+            if (changed) onChanged();
+          }}
+        />
+      </li>
+    );
+  }
+
   return (
     <li>
       <details className={s.person} open={isMe}>
         <summary className={s.member}>
-          <span className={`${s.dot} ${allFailing || (errors && !count) ? s.dotErr : count ? "" : s.dotIdle}`} />
+          <span className={`${s.dot} ${dotClass}`} />
           <span className={s.memberName}>
             {person.name}
             {isMe && <span className={s.small}> (you)</span>}
           </span>
+          {isMe && (
+            <button
+              type="button"
+              className={s.iconButton}
+              onClick={(e) => {
+                e.preventDefault(); // don't toggle the dropdown
+                setEditing(true);
+              }}
+              aria-label="Edit your name"
+              title="Edit your name"
+            >
+              <PencilIcon />
+            </button>
+          )}
           <span className={`${s.small} ${errors ? s.errorText : ""}`}>
             {errors ? `${errors} not loading` : count === 0 ? "no calendars" : `${count} ${count === 1 ? "calendar" : "calendars"}`}
           </span>
@@ -221,7 +246,6 @@ function PersonRow({ groupId, person, isMe, errorOf, onChanged }: { groupId: str
               ))}
             </ul>
           )}
-          {isMe && <MyName groupId={groupId} personId={person.id} name={person.name} onChanged={onChanged} />}
           {person.unowned && <p className={s.small} style={{ margin: 0 }}>Added before names were required, so anyone can remove it.</p>}
         </div>
       </details>
