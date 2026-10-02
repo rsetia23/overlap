@@ -37,6 +37,13 @@
 .member { display: flex; align-items: center; gap: 8px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--all-free); flex: none; }
 .dotErr { background: var(--danger); }
+.dotIdle { background: var(--border); }
+.errorText { color: var(--danger); }
+.person > summary { cursor: pointer; list-style: none; padding: 4px 0; }
+.person > summary::-webkit-details-marker { display: none; }
+.person > summary::after { content: "▸"; color: var(--muted); font-size: 12px; transition: transform 0.15s; }
+.person[open] > summary::after { transform: rotate(90deg); }
+.personBody { display: grid; gap: 6px; padding: 4px 0 8px 16px; }
 .memberName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .link { background: none; border: none; padding: 2px 4px; color: var(--muted); font-size: 13px; }
 .link:hover { color: var(--text); }

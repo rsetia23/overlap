@@ -40,4 +40,14 @@ describe("busyIntervals", () => {
       ["2026-10-07T20:00:00.000Z", "2026-10-07T21:00:00.000Z"],
     ]);
   });
+
+  it("reads Outlook feeds with Windows timezone names and Free events", () => {
+    const outlook = readFileSync(new URL("./fixtures/outlook.ics", import.meta.url), "utf8");
+    const out = busyIntervals(outlook, new Date("2026-09-28T00:00Z"), new Date("2026-11-03T00:00Z"));
+    expect(iso(out).filter(([s]) => s.startsWith("2026-09") || s.startsWith("2026-11"))).toEqual([
+      ["2026-09-28T13:00:00.000Z", "2026-09-28T14:00:00.000Z"], // Monday 9am EDT; Tuesday's Free event skipped
+      ["2026-11-02T14:00:00.000Z", "2026-11-02T15:00:00.000Z"], // 9am EST after DST ends (Windows TZID resolved)
+    ]);
+  });
 });
+

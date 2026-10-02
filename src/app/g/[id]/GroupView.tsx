@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BusyResponse } from "@/app/api/groups/[id]/busy/route";
-import type { Interval } from "@/lib/intervals";
+import { mergeIntervals, type Interval } from "@/lib/intervals";
 import { buildGrid, findWindows, type Window } from "@/lib/slots";
-import type { PublicMember } from "@/lib/store";
+import type { PublicMember, PublicPerson } from "@/lib/store";
 import s from "../../ui.module.css";
 import AddCalendar from "./AddCalendar";
-import CalendarList from "./CalendarList";
+import CalendarList, { type Person } from "./CalendarList";
 import { fmtDuration, fmtHour, fmtRange, fromInputDate, listNames, toInputDate } from "./format";
 import Heatmap from "./Heatmap";
+import JoinGroup from "./JoinGroup";
+import { useMe } from "./me";
 
 const SLOT_MINUTES = 30;
 const WINDOW_DAYS = 42; // must match busyWindow() on the server
@@ -22,8 +24,11 @@ const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0].map((n) => ({
   label: new Date(2026, 0, 4 + n).toLocaleDateString(undefined, { weekday: "short" }),
 }));
 
+type GroupData = { people: PublicPerson[]; members: PublicMember[] };
+
 export default function GroupView({ id, name }: { id: string; name: string }) {
-  const [members, setMembers] = useState<PublicMember[] | null>(null);
+  const [group, setGroup] = useState<GroupData | null>(null);
+  const [storedMe, setMe] = useMe(id);
   const [busy, setBusy] = useState<BusyResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -48,7 +53,7 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
           fetch(`/api/groups/${id}/busy${refresh ? "?refresh=1" : ""}`).then((r) => r.json()),
         ]);
         return () => {
-          setMembers(g.members ?? []);
+          setGroup({ people: g.people ?? [], members: g.members ?? [] });
           setBusy(b);
           setNow(Date.now());
           setLoadError(null);
@@ -77,16 +82,34 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
     };
   }, [fetchAll]);
 
+  const people = useMemo<Person[] | null>(() => {
+    if (!group) return null;
+    const list: Person[] = group.people.map((p) => ({ ...p, calendars: group.members.filter((m) => m.ownerId === p.id) }));
+    // Calendars added before people existed each stand in for a person.
+    const known = new Set(group.people.map((p) => p.id));
+    for (const m of group.members) {
+      if (!m.ownerId || !known.has(m.ownerId)) list.push({ id: `cal-${m.id}`, name: m.name, calendars: [m], unowned: true });
+    }
+    return list;
+  }, [group]);
+
+  // Availability is per person: busy in any of their readable calendars.
   const ok = useMemo(() => {
     const out: Record<string, Interval[]> = {};
-    for (const m of members ?? []) {
-      const r = busy?.members[m.id];
-      if (r && "busy" in r) out[m.id] = r.busy;
+    for (const p of people ?? []) {
+      const readable = p.calendars.flatMap((m) => {
+        const r = busy?.members[m.id];
+        return r && "busy" in r ? [r.busy] : [];
+      });
+      if (readable.length) out[p.id] = mergeIntervals(readable.flat());
     }
     return out;
-  }, [members, busy]);
+  }, [people, busy]);
   const okCount = Object.keys(ok).length;
-  const nameOf = useCallback((mid: string) => members?.find((m) => m.id === mid)?.name ?? "?", [members]);
+  const nameOf = useCallback((pid: string) => people?.find((p) => p.id === pid)?.name ?? "?", [people]);
+  const calendarCount = group?.members.length ?? 0;
+  // A remembered name that's no longer in the group doesn't count.
+  const me = group?.people.find((p) => p.id === storedMe) ?? null;
 
   const days = useMemo(
     () =>
@@ -128,6 +151,26 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
     setTimeout(() => setCopied(false), 1800);
   }
 
+  if (group && !me) {
+    return (
+      <main className={s.page}>
+        <Link href="/" className={s.brand}>
+          Overlap
+        </Link>
+        <h1 className={s.title}>{name}</h1>
+        <p className={s.sub}>Find a time that works for everyone in this group.</p>
+        <JoinGroup
+          groupId={id}
+          people={group.people}
+          onPick={(pid) => {
+            setMe(pid);
+            load();
+          }}
+        />
+      </main>
+    );
+  }
+
   const today = toInputDate(new Date(now));
   const lastStart = toInputDate(new Date(now + (WINDOW_DAYS - numDays) * 86_400_000));
 
@@ -138,11 +181,19 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
       </Link>
       <h1 className={s.title}>{name}</h1>
       <p className={s.sub}>
-        {members === null
+        {people === null
           ? "Loading…"
-          : members.length === 0
+          : calendarCount === 0
             ? "No calendars yet. Add yours, then send this link to your friends."
-            : `${members.length} ${members.length === 1 ? "calendar" : "calendars"} · times shown in your timezone`}
+            : `${people.length} ${people.length === 1 ? "person" : "people"} · ${calendarCount} ${calendarCount === 1 ? "calendar" : "calendars"} · times shown in your timezone`}
+        {me && (
+          <>
+            {" · "}You&apos;re {me.name}{" "}
+            <button type="button" className={s.link} onClick={() => setMe(null)}>
+              Not you?
+            </button>
+          </>
+        )}
       </p>
 
       <div className={s.layout}>
@@ -190,7 +241,7 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
           </div>
           {loadError && <p className={s.error}>{loadError}</p>}
           {okCount === 0 ? (
-            <div className={s.empty}>{members === null ? "Loading calendars…" : "Once someone adds a calendar, their busy times show up here."}</div>
+            <div className={s.empty}>{people === null ? "Loading calendars…" : "Once someone adds a calendar, their busy times show up here."}</div>
           ) : (
             <Heatmap days={days} total={okCount} now={now} nameOf={nameOf} />
           )}
@@ -213,7 +264,7 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
               ))}
             </div>
             {okCount < 2 ? (
-              <p className={s.muted}>Add at least two calendars to see times that work for the group.</p>
+              <p className={s.muted}>Once at least two people have added a calendar, times that work for the group show up here.</p>
             ) : weekdays.size === 0 ? (
               <p className={s.muted}>Pick at least one day.</p>
             ) : windows.length === 0 ? (
@@ -235,10 +286,11 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
 
           <section className={s.card}>
             <h2 className={s.h2}>Calendars</h2>
-            {members && (
+            {people && group && (
               <CalendarList
                 groupId={id}
-                members={members}
+                people={people}
+                me={me?.id ?? null}
                 errorOf={(mid) => {
                   const r = busy?.members[mid];
                   return r && "error" in r ? r.error : null;
@@ -251,7 +303,7 @@ export default function GroupView({ id, name }: { id: string; name: string }) {
             </div>
           </section>
 
-          <AddCalendar groupId={id} onAdded={() => load()} />
+          {group && me && <AddCalendar groupId={id} me={me.id} onAdded={() => load()} />}
         </div>
       </div>
     </main>

@@ -15,3 +15,4 @@ export async function loadGroup(params: Promise<{ id: string }>) {
   const group = isValidId(id) ? await getGroup(id) : null;
   return group ? { id, group, error: null } : { id, group: null, error: bad("Group not found", 404) };
 }
+

@@ -31,6 +31,8 @@ function countsAsBusy(event: IcalEvent, ownerEmail: string | null): boolean {
   const c = event.component;
   if (String(c.getFirstPropertyValue("transp") ?? "").toUpperCase() === "TRANSPARENT") return false;
   if (String(c.getFirstPropertyValue("status") ?? "").toUpperCase() === "CANCELLED") return false;
+  // Outlook marks "Show as: Free" this way, sometimes without TRANSP.
+  if (String(c.getFirstPropertyValue("x-microsoft-cdo-busystatus") ?? "").toUpperCase() === "FREE") return false;
   if (ownerEmail) {
     for (const att of c.getAllProperties("attendee")) {
       const email = String(att.getFirstValue()).replace(/^mailto:/i, "").toLowerCase();

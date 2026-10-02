@@ -1,5 +1,6 @@
 import { busyIntervals } from "./ics";
 import type { Interval } from "./intervals";
+import { isFetchableUrl, safeFetch, UnsafeUrlError } from "./safe-fetch";
 
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_FEED_BYTES = 15 * 1024 * 1024;
@@ -25,10 +26,13 @@ function calendarIdFromShareLink(url: URL): string | null {
   return CAL_ID.test(decoded) ? decoded : null;
 }
 
+const isGoogle = (url: string) => new URL(url).hostname === "calendar.google.com";
+
 /**
- * Accepts only Google Calendar addresses, so the server can't be pointed at
- * arbitrary URLs. Takes an iCal address (secret or public; `webcal://` is
- * rewritten to https) or a share link, which becomes the public iCal address.
+ * Takes any iCal address (`webcal://` is rewritten to https) on a public web
+ * host. Google share links become the calendar's public iCal address; other
+ * Google pages aren't feeds, so they're rejected up front with a better hint.
+ * Hosts are checked again at fetch time, after DNS (see safe-fetch).
  */
 export function normalizeFeedUrl(input: string): string | null {
   let url: URL;
@@ -37,7 +41,10 @@ export function normalizeFeedUrl(input: string): string | null {
   } catch {
     return null;
   }
-  if (url.protocol !== "https:" || url.hostname !== "calendar.google.com") return null;
+  if (!isFetchableUrl(url)) return null;
+  url.hash = "";
+  if (url.hostname !== "calendar.google.com") return url.href;
+  if (url.protocol !== "https:") return null;
   if (/^\/calendar\/ical\/[^/]+\/[^/]+\/basic\.ics$/.test(url.pathname)) return url.origin + url.pathname;
   const calId = calendarIdFromShareLink(url);
   return calId ? `https://calendar.google.com/calendar/ical/${encodeURIComponent(calId)}/public/basic.ics` : null;
@@ -46,23 +53,39 @@ export function normalizeFeedUrl(input: string): string | null {
 export class FeedError extends Error {}
 
 export async function fetchBusy(url: string): Promise<Interval[]> {
+  const google = isGoogle(url);
+  const source = google ? "Google Calendar" : "The calendar server";
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), cache: "no-store" });
-  } catch {
-    throw new FeedError("Google Calendar didn't respond in time.");
+    res = await safeFetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), cache: "no-store" });
+  } catch (e) {
+    if (e instanceof UnsafeUrlError) throw new FeedError("That link doesn't point to a public calendar server.");
+    throw new FeedError(`${source} didn't respond in time.`);
   }
-  if (res.status === 404 || res.status === 403) {
-    throw new FeedError("Google won't share this calendar. Make sure it's shared publicly as free/busy, or paste a fresh secret address if you reset it.");
+  if (res.status === 404 || res.status === 403 || res.status === 401) {
+    throw new FeedError(
+      google
+        ? "Google won't share this calendar. Make sure it's shared publicly as free/busy, or paste a fresh secret address if you reset it."
+        : "The calendar server won't share this calendar. Make sure it's published, or paste a fresh link if you reset it.",
+    );
   }
-  if (!res.ok) throw new FeedError(`Google Calendar returned an error (${res.status}).`);
+  if (!res.ok) throw new FeedError(`${source} returned an error (${res.status}).`);
   const text = await res.text();
   if (text.length > MAX_FEED_BYTES) throw new FeedError("This calendar is too large to read.");
-  if (!text.includes("BEGIN:VCALENDAR")) throw new FeedError("That link didn't return a calendar.");
+  if (!text.includes("BEGIN:VCALENDAR")) throw new FeedError("That link didn't return a calendar. Look for an iCal or .ics link in your calendar's sharing settings.");
   const { from, to } = busyWindow();
   try {
     return busyIntervals(text, from, to);
   } catch {
     throw new FeedError("Couldn't read this calendar's events.");
   }
+}
+
+/** A label for a calendar added without one, from where its feed lives. */
+export function defaultCalendarName(url: string): string {
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  if (host === "calendar.google.com") return "Google Calendar";
+  if (/(^|\.)(outlook|office365|office|live)\.com$/.test(host)) return "Outlook";
+  if (/(^|\.)icloud\.com$/.test(host)) return "iCloud";
+  return host.slice(0, 40);
 }
